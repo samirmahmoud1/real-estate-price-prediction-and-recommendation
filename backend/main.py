@@ -269,6 +269,3 @@ app = FastAPI()
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Real Estate AI API is running"}
-@app.get("/")
-def home():
-    return {"message": "API is working 🚀"}
