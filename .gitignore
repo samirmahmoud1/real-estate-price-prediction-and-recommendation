@@ -1,0 +1,11 @@
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.csv
+data/
+.env
+.env.local
