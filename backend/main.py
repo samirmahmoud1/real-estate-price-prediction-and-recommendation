@@ -8,12 +8,8 @@ app = FastAPI(title="Real Estate AI API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://real-estate-ai-frontend-j3od.vercel.app",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -22,7 +18,9 @@ app.add_middleware(
 def load_data():
     file_id = "1A10QlgkfBuDAm_SFB0XfUdSL5RBRzP0P"
     url = f"https://drive.google.com/uc?id={file_id}"
-    return pd.read_csv(url, low_memory=False)
+    data = pd.read_csv(url, low_memory=False)
+    data = data.replace([np.inf, -np.inf], np.nan)
+    return data
 
 
 df = load_data()
@@ -49,7 +47,10 @@ class PredictRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Real Estate AI API is running"}
+    return {
+        "status": "ok",
+        "message": "Real Estate AI API is running",
+    }
 
 
 @app.get("/health")
@@ -63,11 +64,20 @@ def health():
 
 @app.get("/options")
 def options():
+    property_types = []
+    tenures = []
+
+    if "propertyType" in df.columns:
+        property_types = sorted(
+            df["propertyType"].dropna().astype(str).unique().tolist()
+        )
+
+    if "tenure" in df.columns:
+        tenures = sorted(df["tenure"].dropna().astype(str).unique().tolist())
+
     return {
-        "propertyTypes": sorted(df["propertyType"].dropna().astype(str).unique().tolist())
-        if "propertyType" in df.columns else [],
-        "tenures": sorted(df["tenure"].dropna().astype(str).unique().tolist())
-        if "tenure" in df.columns else [],
+        "propertyTypes": property_types,
+        "tenures": tenures,
     }
 
 
@@ -75,31 +85,57 @@ def options():
 def dashboard():
     price_col = "saleEstimate_currentPrice"
 
+    average_price = 0
+    if price_col in df.columns:
+        average_price = round(float(df[price_col].dropna().mean()), 2)
+
+    average_roi = 0
+    if "ROI" in df.columns:
+        average_roi = round(float(df["ROI"].dropna().mean()), 4)
+
+    average_growth = 0
+    if "growth_rate" in df.columns:
+        average_growth = round(float(df["growth_rate"].dropna().mean()), 2)
+
     overview = {
         "totalProperties": int(len(df)),
-        "averagePrice": round(float(df[price_col].mean()), 2),
-        "averageROI": round(float(df["ROI"].mean()), 4) if "ROI" in df.columns else 0,
-        "averageGrowth": round(float(df["growth_rate"].mean()), 2) if "growth_rate" in df.columns else 0,
+        "averagePrice": average_price,
+        "averageROI": average_roi,
+        "averageGrowth": average_growth,
     }
 
     property_types = (
-        df["propertyType"].dropna().astype(str).value_counts().head(10).to_dict()
-        if "propertyType" in df.columns else {}
+        df["propertyType"]
+        .dropna()
+        .astype(str)
+        .value_counts()
+        .head(10)
+        .to_dict()
+        if "propertyType" in df.columns
+        else {}
     )
 
     tenure = (
-        df["tenure"].dropna().astype(str).value_counts().head(10).to_dict()
-        if "tenure" in df.columns else {}
+        df["tenure"]
+        .dropna()
+        .astype(str)
+        .value_counts()
+        .head(10)
+        .to_dict()
+        if "tenure" in df.columns
+        else {}
     )
 
-    price_vs_area = (
-        df[["floorAreaSqM", price_col]]
-        .dropna()
-        .sample(min(1200, len(df)), random_state=42)
-        .replace([np.inf, -np.inf], np.nan)
-        .fillna("")
-        .to_dict(orient="records")
-    )
+    price_vs_area = []
+    if "floorAreaSqM" in df.columns and price_col in df.columns:
+        price_vs_area = (
+            df[["floorAreaSqM", price_col]]
+            .dropna()
+            .sample(min(1200, len(df)), random_state=42)
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna("")
+            .to_dict(orient="records")
+        )
 
     map_cols = [
         "latitude",
@@ -114,16 +150,18 @@ def dashboard():
         "tenure",
     ]
 
-    map_cols = [c for c in map_cols if c in df.columns]
+    map_cols = [col for col in map_cols if col in df.columns]
 
-    map_points = (
-        df[map_cols]
-        .dropna(subset=["latitude", "longitude"])
-        .sample(min(2000, len(df)), random_state=42)
-        .replace([np.inf, -np.inf], np.nan)
-        .fillna("")
-        .to_dict(orient="records")
-    )
+    map_points = []
+    if "latitude" in df.columns and "longitude" in df.columns:
+        map_points = (
+            df[map_cols]
+            .dropna(subset=["latitude", "longitude"])
+            .sample(min(2000, len(df)), random_state=42)
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna("")
+            .to_dict(orient="records")
+        )
 
     return {
         "overview": overview,
@@ -136,6 +174,17 @@ def dashboard():
 
 @app.post("/recommend")
 def recommend(req: RecommendRequest):
+    required_cols = [
+        "saleEstimate_currentPrice",
+        "bedrooms",
+        "bathrooms",
+        "floorAreaSqM",
+    ]
+
+    for col in required_cols:
+        if col not in df.columns:
+            return {"properties": [], "error": f"Missing column: {col}"}
+
     filtered = df[
         (df["saleEstimate_currentPrice"] <= req.budget)
         & (df["bedrooms"] >= req.minBedrooms)
@@ -177,19 +226,34 @@ def recommend(req: RecommendRequest):
         "tenure",
     ]
 
-    cols = [c for c in cols if c in filtered.columns]
+    cols = [col for col in cols if col in filtered.columns]
 
-    return {
-        "properties": filtered[cols]
+    properties = (
+        filtered[cols]
         .head(24)
         .replace([np.inf, -np.inf], np.nan)
         .fillna("")
         .to_dict(orient="records")
-    }
+    )
+
+    return {"properties": properties}
 
 
 @app.post("/predict")
 def predict(req: PredictRequest):
+    required_cols = [
+        "saleEstimate_currentPrice",
+        "floorAreaSqM",
+        "bedrooms",
+        "bathrooms",
+        "latitude",
+        "longitude",
+    ]
+
+    for col in required_cols:
+        if col not in df.columns:
+            return {"error": f"Missing column: {col}"}
+
     work = df.copy()
 
     if "propertyType" in work.columns:
@@ -201,6 +265,20 @@ def predict(req: PredictRequest):
         temp = work[work["tenure"].astype(str) == str(req.tenure)]
         if len(temp) >= 30:
             work = temp
+
+    work = work.dropna(
+        subset=[
+            "saleEstimate_currentPrice",
+            "floorAreaSqM",
+            "bedrooms",
+            "bathrooms",
+            "latitude",
+            "longitude",
+        ]
+    ).copy()
+
+    if work.empty:
+        return {"error": "No valid comparable properties found"}
 
     work["score_bed"] = (work["bedrooms"] - req.bedrooms).abs()
     work["score_bath"] = (work["bathrooms"] - req.bathrooms).abs()
@@ -239,7 +317,7 @@ def predict(req: PredictRequest):
         "LOW": 0.98,
         "MEDIUM": 1.00,
         "HIGH": 1.02,
-    }.get(req.confidence, 1.0)
+    }.get(req.confidence.upper(), 1.0)
 
     predicted_price = median_price * conf_factor
     diff_ratio = (predicted_price - median_price) / median_price
@@ -262,16 +340,20 @@ def predict(req: PredictRequest):
         "tenure",
     ]
 
-    comp_cols = [c for c in comp_cols if c in comps.columns]
+    comp_cols = [col for col in comp_cols if col in comps.columns]
+
+    comparables = (
+        comps[comp_cols]
+        .head(12)
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna("")
+        .to_dict(orient="records")
+    )
 
     return {
         "predictedPrice": round(float(predicted_price), 2),
         "medianComparablePrice": round(float(median_price), 2),
         "comparablesUsed": int(len(comps)),
         "marketStatus": market_status,
-        "comparables": comps[comp_cols]
-        .head(12)
-        .replace([np.inf, -np.inf], np.nan)
-        .fillna("")
-        .to_dict(orient="records"),
+        "comparables": comparables,
     }
