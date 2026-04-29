@@ -9,7 +9,6 @@ import {
   Building2,
   Flame,
   Gem,
-  Home,
   Loader2,
   MapPin,
   Maximize2,
@@ -23,6 +22,9 @@ import {
   Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+
+const API_BASE =
+  "https://real-estate-price-prediction-and-recommendation-production.up.railway.app";
 
 type Strategy = "Safe" | "Balanced" | "Aggressive";
 
@@ -61,10 +63,10 @@ export default function InvestmentPage() {
   const [strategy, setStrategy] = useState<Strategy>("Balanced");
 
   const [rawResults, setRawResults] = useState<Property[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeInsight, setActiveInsight] = useState(
-    "Choose your filters, run the investment engine, then compare real opportunities from your dataset."
+    "Choose your filters, run the investment engine, then compare real opportunities from your live API."
   );
 
   const deals = useMemo(() => {
@@ -79,14 +81,15 @@ export default function InvestmentPage() {
 
   async function runInvestmentSearch() {
     setLoading(true);
-    setActiveInsight("Analyzing real properties from your dataset...");
+    setActiveInsight("Analyzing real properties from the live API...");
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/recommend", {
+      const res = await fetch(`${API_BASE}/recommend`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        cache: "no-store",
         body: JSON.stringify({
           budget,
           minBedrooms,
@@ -99,6 +102,13 @@ export default function InvestmentPage() {
       const properties: Property[] = Array.isArray(data.properties)
         ? data.properties
         : [];
+
+      if (!res.ok || data.error) {
+        setRawResults([]);
+        setSelectedId("");
+        setActiveInsight(data.error || "Investment search failed.");
+        return;
+      }
 
       setRawResults(properties);
 
@@ -113,11 +123,12 @@ export default function InvestmentPage() {
       const firstDeal = scoreDeal(properties[0], 0, strategy, budget);
       setSelectedId(firstDeal.id);
       setActiveInsight(
-        `Found ${properties.length} matching properties. Top opportunities are ranked using ${strategy} strategy.`
+        `Found ${properties.length} matching properties from the live API. Top opportunities are ranked using ${strategy} strategy.`
       );
-    } catch {
+    } catch (error) {
+      console.error(error);
       setActiveInsight(
-        "Backend connection failed. Make sure FastAPI is running on http://127.0.0.1:8000."
+        "Backend connection failed. Make sure the Railway API is running."
       );
     } finally {
       setLoading(false);
@@ -137,7 +148,7 @@ export default function InvestmentPage() {
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-4 py-2 text-sm font-bold text-emerald-200">
             <Sparkles size={16} />
-            Real Dataset Investment Engine
+            Live Real Dataset Investment Engine
           </div>
 
           <h1 className="mt-5 text-5xl font-black leading-tight md:text-7xl">
@@ -149,8 +160,8 @@ export default function InvestmentPage() {
 
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
             A clean, technical, real-data investment screen. Every result comes
-            from your dataset, then gets ranked by strategy, ROI, growth, budget
-            fit, risk, and area quality.
+            from your live Railway API, then gets ranked by strategy, ROI,
+            growth, budget fit, risk, and area quality.
           </p>
         </motion.div>
 
@@ -339,7 +350,7 @@ function ControlPanel({
           {loading ? (
             <>
               <Loader2 className="animate-spin" />
-              Analyzing Real Data...
+              Analyzing Live Data...
             </>
           ) : (
             <>
@@ -926,5 +937,8 @@ function formatPercent(value: number) {
 }
 
 function hasCoords(deal: Deal) {
-  return Number.isFinite(Number(deal.latitude)) && Number.isFinite(Number(deal.longitude));
+  return (
+    Number.isFinite(Number(deal.latitude)) &&
+    Number.isFinite(Number(deal.longitude))
+  );
 }
