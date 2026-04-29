@@ -14,6 +14,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+const API_BASE =
+  "https://real-estate-price-prediction-and-recommendation-production.up.railway.app";
+
 type DashboardData = {
   overview: {
     totalProperties: number;
@@ -43,19 +46,36 @@ type DashboardData = {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState("");
   const [activeInsight, setActiveInsight] = useState(
     "Hover over any visualization to reveal real insights from your dataset."
   );
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/dashboard")
-      .then((res) => res.json())
-      .then((res) => setData(res));
+    async function loadDashboard() {
+      try {
+        const res = await fetch(`${API_BASE}/dashboard`, {
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to load dashboard data");
+        }
+
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error(err);
+        setError("Dashboard data failed to load. Check API connection.");
+      }
+    }
+
+    loadDashboard();
   }, []);
 
   const propertyTypes = useMemo(() => {
     if (!data) return [];
-    return Object.entries(data.propertyTypes).map(([label, value]) => ({
+    return Object.entries(data.propertyTypes || {}).map(([label, value]) => ({
       label,
       value,
     }));
@@ -63,7 +83,7 @@ export default function DashboardPage() {
 
   const tenure = useMemo(() => {
     if (!data) return [];
-    return Object.entries(data.tenure).map(([label, value]) => ({
+    return Object.entries(data.tenure || {}).map(([label, value]) => ({
       label,
       value,
     }));
@@ -71,12 +91,12 @@ export default function DashboardPage() {
 
   const priceSample = useMemo(() => {
     if (!data) return [];
-    return data.priceVsArea.slice(0, 80);
+    return (data.priceVsArea || []).slice(0, 80);
   }, [data]);
 
   const scatterSample = useMemo(() => {
     if (!data) return [];
-    return data.priceVsArea
+    return (data.priceVsArea || [])
       .filter((x) => x.floorAreaSqM && x.saleEstimate_currentPrice)
       .slice(0, 140);
   }, [data]);
@@ -96,8 +116,10 @@ export default function DashboardPage() {
             Loading Real Estate Intelligence...
           </h1>
           <p className="mt-2 text-slate-400">
-            Connecting to your Google Drive dataset
+            Connecting to your live Railway API
           </p>
+
+          {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         </motion.div>
       </main>
     );
@@ -109,7 +131,6 @@ export default function DashboardPage() {
       <div className="absolute inset-0 opacity-[0.08] bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:75px_75px]" />
 
       <section className="relative z-10 mx-auto max-w-7xl">
-        {/* HERO */}
         <motion.div
           initial={{ opacity: 0, y: 26 }}
           animate={{ opacity: 1, y: 0 }}
@@ -128,7 +149,7 @@ export default function DashboardPage() {
           </h1>
 
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
-            Live analytics powered by your Google Drive dataset:{" "}
+            Live analytics powered by your Railway API:{" "}
             <span className="font-black text-cyan-300">
               {data.overview.totalProperties.toLocaleString()}
             </span>{" "}
@@ -136,7 +157,6 @@ export default function DashboardPage() {
           </p>
         </motion.div>
 
-        {/* KPIS */}
         <div className="grid gap-5 md:grid-cols-4">
           <KpiCard
             label="Total Properties"
@@ -173,7 +193,6 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* TOP ANALYTICS LAYOUT */}
         <div className="mt-8 grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <Panel
             title="Top Property Types"
@@ -263,7 +282,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* VISUALIZATION CENTER */}
         <div className="mt-8 grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
           <Panel
             title="Animated Price Distribution"
@@ -288,7 +306,6 @@ export default function DashboardPage() {
           </Panel>
         </div>
 
-        {/* SECOND ANALYTICS */}
         <div className="mt-8 grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
           <Panel
             title="Tenure Distribution"
@@ -350,7 +367,6 @@ export default function DashboardPage() {
           </Panel>
         </div>
 
-        {/* INSIGHTS */}
         <div className="mt-8 grid gap-6 md:grid-cols-3">
           <InsightCard
             icon={<Flame />}
