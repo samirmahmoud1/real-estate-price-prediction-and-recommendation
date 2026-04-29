@@ -8,16 +8,18 @@ app = FastAPI(title="Real Estate AI API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 def load_data():
     file_id = "1A10QlgkfBuDAm_SFB0XfUdSL5RBRzP0P"
     url = f"https://drive.google.com/uc?id={file_id}"
     return pd.read_csv(url, low_memory=False)
+
 
 df = load_data()
 
@@ -39,6 +41,11 @@ class PredictRequest(BaseModel):
     propertyType: str
     tenure: str
     confidence: str = "MEDIUM"
+
+
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "Real Estate AI API is running"}
 
 
 @app.get("/health")
@@ -85,6 +92,8 @@ def dashboard():
         df[["floorAreaSqM", price_col]]
         .dropna()
         .sample(min(1200, len(df)), random_state=42)
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna("")
         .to_dict(orient="records")
     )
 
@@ -229,7 +238,6 @@ def predict(req: PredictRequest):
     }.get(req.confidence, 1.0)
 
     predicted_price = median_price * conf_factor
-
     diff_ratio = (predicted_price - median_price) / median_price
 
     if abs(diff_ratio) < 0.05:
@@ -263,9 +271,3 @@ def predict(req: PredictRequest):
         .fillna("")
         .to_dict(orient="records"),
     }
-from fastapi import FastAPI
-
-app = FastAPI()
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "Real Estate AI API is running"}
